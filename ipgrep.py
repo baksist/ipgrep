@@ -3,17 +3,54 @@
 import sys
 import re
 import ipaddress
+import argparse
 
-def search_for_ips(file, network):
+def init_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog='python3 ipgrep.py',
+        description='tool for searching IP ranges in text files'
+    )
+    net_group = parser.add_mutually_exclusive_group()
+    net_group.add_argument(
+        "-l", 
+        "--local",
+        action="store_true",
+        help="search for IPs in internal networks"
+    )
+    net_group.add_argument(
+        "-e", 
+        "--external",
+        action="store_true",
+        help="search for IPs in external networks"
+    )
+    net_group.add_argument(
+        "-r",
+        "--range",
+        nargs="*",
+        metavar="IP_RANGE",
+        help="IP address ranges in CIDR format"
+    )
+    parser.add_argument(
+        "-f",
+        "--file",
+        metavar="FILE"
+    )
+    return parser
+
+def search_for_ips(file, networks, reverse=False):
 
     def belongs_to_net(addr):
-        try:
-            net = ipaddress.ip_network(network)
-            address = ipaddress.ip_address(addr)
-            return address in net
-        except: 
-            return False
-
+        found = False
+        for network in networks:
+            try:
+                net = ipaddress.ip_network(network)
+                address = ipaddress.ip_address(addr)
+                if address in net:
+                    found = True
+            except ValueError:
+                return False
+        return found ^ reverse
+            
     def check_line(line):
         pattern = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})") # simple extraction of 4 numbers separated by dots
         result = re.search(pattern, line)
@@ -23,30 +60,33 @@ def search_for_ips(file, network):
                 return True
         return False
     
-    if file is None:
-        stream = sys.stdin
-    else:
-        stream = open(file, 'r')
+    stream = open(file, 'r')
     
     for line in stream:
         if (check_line(line)):
             print(line, end='')
     
     if stream is not sys.stdin:
-        stream.close()
-            
+        stream.close()    
+
+def search_for_local_or_external_ips(file, flag):
+    networks = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+    search_for_ips(file, networks, flag)
 
 def main():
-    argcount = len(sys.argv)
-    if (argcount != 2 and argcount != 3):
-        exit(1)
-    if (argcount == 2):
-        file = None
-        network = sys.argv[1]
-    else:
-        file = sys.argv[1]
-        network = sys.argv[2]
-    search_for_ips(file, network)
+    parser = init_parser()
+    
+    if len(sys.argv)==1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+    args = parser.parse_args()
+
+    if args.local:
+        search_for_local_or_external_ips(args.file, False)
+    elif args.external:
+        search_for_local_or_external_ips(args.file, True)
+    elif args.range is not None:
+        search_for_ips(args.file, args.range)
 
 if __name__ == '__main__':
     main()
